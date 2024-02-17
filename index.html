@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>autoproto</title>
+
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: sans-serif;
+      }
+
+      body {
+        width: 100vw;
+        min-height: 100vh;
+        background: #f7f6f6;
+      }
+
+      .title {
+        padding: 1em;
+        font-size: 1.2rem;
+      }
+
+      .row {
+        display: flex;
+        flex-direction: row;
+      }
+
+      .col {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .top-options {
+        padding: 15px 50px;
+      }
+
+      .custom-select {
+        width: 100px;
+        padding: 4px 6px;
+        border: 2px solid black;
+        border-radius: 10px;
+      }
+
+      .div-button {
+        border: 2px solid black;
+        border-radius: 10px;
+        padding: 4px 6px;
+        width: 100px;
+        background: #515151;
+        color: #f7f6f6;
+        display: flex;
+        place-content: center;
+        cursor: pointer;
+        margin: 1rem;
+      }
+
+      .div-button:hover {
+        background: #e4e4e4;
+        color: black;
+      }
+
+      .delete-item {
+        cursor: pointer;
+      }
+
+      .delete-item:hover {
+        color: red;
+      }
+
+      #framelist {
+        display: flex;
+        flex-direction: column;
+        width: 90%;
+        border: 1px solid black;
+        border-radius: 10px;
+        padding: 10px 0px;
+        margin: auto;
+        overflow: scroll;
+        min-width: 550px;
+      }
+
+      #framelist > * {
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .frameitem {
+        display: flex;
+        align-items: center;
+        padding: 5px;
+      }
+
+      .label-text {
+        padding-bottom: 3px;
+        font-size: 0.7rem;
+        color: black;
+        padding-left: 10px;
+      }
+
+      pre {
+        min-height: 50px;
+        background: lightgrey;
+        width: 90%;
+        margin: auto;
+        margin-bottom: 30px;
+        padding: 10px;
+        border-radius: 10px;
+        font-family: monospace;
+      }
+
+      .prevent-select {
+        -webkit-user-select: none; /* Safari */
+        -ms-user-select: none; /* IE 10 and IE 11 */
+        user-select: none; /* Standard syntax */
+      }
+    </style>
+
+    <script type="module" defer>
+      import {
+        html,
+        render,
+        svg,
+      } from "https://cdn.jsdelivr.net/npm/lit-html@3.1.1/lit-html.min.js";
+
+      const PROTOCOL_TYPES = ["uart", "i2c", "spi"];
+      const NETWORK_ARCHITECTURE = ["bus", "ring"];
+      const BAUDRATES = [
+        110, 300, 600, 1200, 2400, 4800, 9600, 14400, 19200, 38400, 57600,
+        115200, 128000, 256000,
+      ];
+
+      window.STATE = {
+        protocol: "uart", // i2c, spi
+        baudrate: 9600,
+        busOrRing: "bus",
+        frame: [
+          {
+            uuid: "1",
+            signed: false,
+            type: "ADDR",
+            name: "mcuAddress",
+            bcnt: 1,
+          },
+          { uuid: "2", signed: false, type: "REGR", name: "fooKey", bcnt: 2 },
+          { uuid: "3", signed: false, type: "DATA", name: "fooVal", bcnt: 3 },
+          { uuid: "4", signed: false, type: "REGR", name: "barKey", bcnt: 4 },
+          { uuid: "5", signed: false, type: "DATA", name: "barVal", bcnt: 5 },
+        ],
+        flyingFrame: [],
+        colorTop: null,
+      };
+      
+      const pixelScale = 25 // *window.devicePixelRatio/2;
+
+      const r = () => {
+        render(view(STATE), document.body);
+      };
+
+      const view = (state) => html`
+        <div class="title">autoproto</div>
+
+        <div
+          style="font-size: .9rem; color: #7d7777; width: 80%; margin: 5px 20px; translate: 0px -18px;"
+        >
+          by Lingdong Huang, Leo McElroy, and Dave Preiss
+        </div>
+
+        <div
+          style="font-size: .9rem; color: #7d7777; width: 80%; margin: 5px 20px; translate: 0px -10px;"
+        >
+          Generate communication code between microcontrollers by describing the
+          data frame.
+        </div>
+
+        <div
+          style="font-size: .7rem; color: #7d7777; width: 80%;  margin: 5px 20px;font-style:italic;"
+        >
+          longing to connect <br />
+          walk the wire to reach out <br />
+          hope for more than quiet <br />
+        </div>
+
+        <div
+          style="
+          display: flex;
+          flex-direction: row;
+          align-items: center;
+          justify-content: space-around;
+          "
+        >
+          <div class="top-options row">
+            <div style="padding-right: 10px;">
+              <div
+                style="padding-bottom: 3px; font-size: .7rem; color: grey; padding-left: 10px;"
+              >
+                protocol
+              </div>
+              <select
+                class="custom-select"
+                @input=${(e) => {
+                  state.protocol = e.target.value;
+                  r();
+                }}
+              >
+                ${PROTOCOL_TYPES.map(
+                  (x) =>
+                    html`<option
+                      .selected=${state.protocol === x ? "true" : ""}
+                      value=${x}
+                    >
+                      ${x}
+                    </option>`
+                )}
+              </select>
+            </div>
+
+            <div style="padding-right: 10px;">
+              <div
+                style="padding-bottom: 3px; font-size: .7rem; color: grey; padding-left: 10px;"
+              >
+                bus or ring
+              </div>
+              <select
+                class="custom-select"
+                @input=${(e) => {
+                  state.busOrRing = e.target.value;
+                  r();
+                }}
+              >
+                ${NETWORK_ARCHITECTURE.map(
+                  (x) =>
+                    html`<option
+                      .selected=${state.busOrRing === x ? "true" : ""}
+                      value=${x}
+                    >
+                      ${x}
+                    </option>`
+                )}
+              </select>
+            </div>
+
+            <div style="padding-right: 10px;">
+              <div
+                style="padding-bottom: 3px; font-size: .7rem; color: grey; padding-left: 10px;"
+              >
+                com rate
+              </div>
+              <select
+                class="custom-select"
+                @input=${(e) => {
+                  state.baudrate = e.target.value;
+                  r();
+                }}
+              >
+                ${BAUDRATES.map(
+                  (x) =>
+                    html`<option
+                      .selected=${state.baudrate === x ? "true" : ""}
+                      value=${x}
+                    >
+                      ${x}
+                    </option>`
+                )}
+              </select>
+            </div>
+          </div>
+
+          <div class="row" style="translate: 0px 6px;">
+            <div
+              class="div-button prevent-select"
+              @mousedown=${(e) => {
+                state.frame = [];
+                r();
+              }}
+            >
+              clear all
+            </div>
+            <div
+              class="div-button prevent-select"
+              @mousedown=${(e) => {
+                state.frame.push({
+                  uuid: "_" + makeid(5),
+                  signed: false,
+                  type: "ADDR",
+                  name: "mcuAddress_" + makeid(3),
+                  bcnt: 8,
+                });
+
+                r();
+              }}
+            >
+              add new
+            </div>
+          </div>
+        </div>
+
+        <div
+          id="framelist"
+          style="
+            border:1px solid black;
+            background: #515151;
+          "
+          @scroll=${(e) => console.log("hello")}
+        >
+          ${state.frame.map((x, i) => generateFrameList(x, i))}
+        </div>
+
+        <div
+          style="
+            position: relative; 
+            width: 90%; 
+            height: ${3 * pixelScale}px; 
+            background: lightgrey; 
+            display: flex; 
+            justify-content: center; 
+            overflow-x: scroll;
+            margin: 10px auto;
+            border-radius: 10px;
+            "
+        >
+          ${drawFrame(state.frame)}
+        </div>
+
+        <div
+          class="div-button prevent-select"
+          style="width: 60%; margin: 10px auto;"
+          @mousedown=${(e) => {
+            console.log(state);
+            let bcnt = 0;
+            for (let i = 0; i < STATE.frame.length; i++) {
+              bcnt += STATE.frame[i].bcnt;
+            }
+            let Bcnt = Math.ceil(bcnt / 8);
+
+            let code = `#define FRAME_LEN ${Bcnt}\nuint8_t frame[FRAME_LEN];\n`;
+            let acc = 0;
+            for (let i = 0; i < STATE.frame.length; i++) {
+              let fi = STATE.frame[i];
+              let bs = Math.ceil(fi.bcnt / 8);
+
+              let bn = [
+                "",
+                "uint8_t",
+                "uint16_t",
+                "uint32_t",
+                "uint32_t",
+                "uint64_t",
+                "uint64_t",
+                "uint64_t",
+                "uint64_t",
+              ][bs];
+              let bm = fi.signed
+                ? [
+                    "",
+                    "int8_t",
+                    "int16_t",
+                    "int32_t",
+                    "int32_t",
+                    "int64_t",
+                    "int64_t",
+                    "int64_t",
+                    "int64_t",
+                  ][bs]
+                : bn;
+              let bi = ~~(acc / (bs * 8));
+              let be = ~~((acc + fi.bcnt - 1) / (bs * 8));
+
+              let bj = acc % (bs * 8);
+              let fc = Math.min(fi.bcnt, bs * 8 - bj);
+
+              code += `
+${bm} get_${fi.name}(){
+  ${bn} b =((((${bn}*)frame)[${bi}]) >> ${bj}) & 0b${"1".repeat(fc)};`;
+              if (be != bi) {
+                code += `\n  b|=((((${bn}*)frame)[${be}]) & 0b${"1".repeat(
+                  fi.bcnt - fc
+                )})<<${fc};`;
+              }
+              let bf = bs * 8;
+              let bl = bf - fi.bcnt;
+              if (bm == bn) {
+                code += `
+  return b;
+}
+`;
+              } else {
+                code += `
+  return ((${bm})(b<<${bl})) >> ${bl};
+}
+`;
+              }
+
+              code += `
+void set_${fi.name}(${bm} b){
+  (((${bn}*)frame)[${bi}]) |= (b&0b${"1".repeat(fc)})<<${bj};`;
+
+              if (be != bi) {
+                code += `\n  (((${bn}*)frame)[${be}]) |= ((b>>${fc})&0b${"1".repeat(
+                  fi.bcnt - fc
+                )});`;
+              }
+
+              code += `
+}
+`;
+
+              acc += fi.bcnt;
+            }
+
+            if (STATE.protocol == "uart") {
+              code += `
+#define SER Serial
+void recv_frame(){
+  int i = 0;
+  while (SER.available()){
+    frame[i++] = SER.read();
+  }
+}
+void send_frame(){
+  for (int i = 0; i < FRAME_LEN; i++){
+    SER.write(frame[i]);
+  }
+}
+              
+              
+              `;
+            }
+
+            document.getElementById("outcode").innerText = code;
+          }}
+        >
+          generate
+        </div>
+
+        <div class="title">generated code</div>
+
+        <pre id="outcode"></pre>
+      `;
+
+      function drawFrame(frame) {
+        const frameItemDivs = [];
+
+        let total = 0;
+
+        frame.forEach((item, i) => {
+          const itemDiv = html`
+            <div
+              style="
+                    position: absolute;
+                    background: ${thoughtfulColor(item)};
+                    top: 45px;
+                    left: ${total * 30 + 10}px;
+                    width: ${item.bcnt * 30 - 5}px;
+                    height: ${1 * pixelScale}px;
+                    color: black;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    border: 1px solid black;
+                    overflow-x: scroll;
+                    border-radius: 5px;
+                    "
+            >
+              ${item.name.length > item.bcnt * 4
+                ? html`<marquee scrollamount="3">${item.name}</marquee>`
+                : html`<div>${item.name}</div>`}
+            </div>
+          `;
+
+          frameItemDivs.push(itemDiv);
+
+          for (let j = 0; j < item.bcnt; j++) {
+            const itemDiv = html`
+              <div
+                style="
+                    position: absolute;
+                    background: ${thoughtfulColor(item)};
+                    top: 5px;
+                    left: ${total * 30 + 10}px;
+                    width: 25px;
+                    height: ${1 * pixelScale}px;
+                    color: black;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    border-radius: 5px;
+                    "
+              >
+                ${total}
+              </div>
+            `;
+
+            frameItemDivs.push(itemDiv);
+
+            if (total > 0 && total % 8 === 0) {
+              frameItemDivs.push(html`
+                <div
+                  style="
+                    position: absolute;
+                    background: black;
+                    opacity: .5;
+                    top: 0px;
+                    left: ${total * 30 + 6}px;
+                    width: 3px;
+                    height: ${3 * pixelScale}px;
+                    color: black;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    border-radius: 5px;
+                  "
+                ></div>
+              `);
+            }
+
+            total++;
+          }
+        });
+
+        while (total % 8 !== 0) {
+          frameItemDivs.push(html`
+            <div
+              style="
+                      position: absolute;
+                      background: #bbbaba;
+                      top: 5px;
+                      left: ${total * 30 + 10}px;
+                      width: 25px;
+                      height: ${1 * pixelScale}px;
+                      border-radius: 5px;
+                      "
+            ></div>
+          `);
+
+          total++;
+        }
+
+        frameItemDivs.push(html`
+          <div
+            style="
+                    position: absolute;
+                    background: none;
+                    top: 45px;
+                    left: ${total * 30 + 10}px;
+                    width: 25px;
+                    height: ${1 * pixelScale}px;
+                    "
+          ></div>
+        `);
+
+        return frameItemDivs;
+      }
+
+      /*
+      function drawFrameSVG(frame) {
+        const frameItemSVGs = [];
+
+        let total = 0;
+        frame.forEach((item, i) => {
+          for (let j = 0; j < item.bcnt; j++) {
+            const itemSVG = svg`
+                <rect x="${
+                  total * 30
+                }" width="25" height="25" style="fill:rgb(0,0,255);stroke-width:0;stroke:rgb(0,0,0)" />
+              `;
+
+            frameItemSVGs.push(itemSVG);
+
+            total++;
+          }
+
+          const itemLabel = svg`
+              <text x="${i * 30}" y="10" style="fill: lightgrey;">${
+            item.name
+          }</text>
+            `;
+
+          frameItemSVGs.push(itemLabel);
+        });
+
+        return frameItemSVGs;
+      }
+      */
+
+      function generateFrameList(frameItem, idx) {
+        return html`
+          <div
+            class="frameitem"
+            id="frameitem-${frameItem.uuid}"
+            style="
+              background:${thoughtfulColor(frameItem)}; 
+              padding-left: 10px; 
+              padding-right: 10px; 
+              border-top: ${STATE.colorTop === frameItem.uuid
+              ? "2px solid black;"
+              : "none"};
+              border-bottom: ${STATE.colorTop === "!" + frameItem.uuid
+              ? "2px solid black;"
+              : "none"};
+              "
+          >
+            <span
+              draggable="true"
+              ondragstart="window.dragFrameItemStart(event,'${frameItem.uuid}')"
+              style="cursor:grab"
+            >
+              ⠿
+            </span>
+
+            <span>
+              <select
+                class="custom-select"
+                @input=${(e) => {
+                  frameItem.type = e.target.value;
+                  r();
+                }}
+              >
+                <option
+                  .selected=${frameItem.type == "ADDR" ? "true" : ""}
+                  value="ADDR"
+                >
+                  ADDR
+                </option>
+                <option
+                  .selected=${frameItem.type == "REGR" ? "true" : ""}
+                  value="REGR"
+                >
+                  REGR
+                </option>
+                <option
+                  .selected=${frameItem.type == "DATA" ? "true" : ""}
+                  value="DATA"
+                >
+                  DATA
+                </option>
+              </select>
+
+              <span class="label-text">type</span>
+            </span>
+
+            <span class="row">
+              <input
+                type="checkbox"
+                .value=${frameItem.signed}
+                @input=${(e) => {
+                  frameItem.signed = e.target.value === "false";
+                  r();
+                }}
+              />
+              <span class="label-text">signed</span>
+            </span>
+
+            <span>
+              <input
+                type="text"
+                class="custom-select"
+                size="16"
+                .value=${frameItem.name}
+                style="width: 150px;"
+                @change=${(e) => {
+                  const sanitized = sanitizeCVariableName(e.target.value);
+                  frameItem.name =
+                    sanitized.length > 0 ? sanitized : `_${makeid(5)}`;
+                  r();
+                }}
+              />
+              <span class="label-text">name</span>
+            </span>
+
+            <span>
+              <input
+                type="number"
+                class="custom-select"
+                .value=${frameItem.bcnt}
+                style="width:50px;"
+                @input=${(e) => {
+                  frameItem.bcnt = Math.min(
+                    64,
+                    Math.max(0, Number(e.target.value))
+                  );
+                  e.target.value = frameItem.bcnt;
+                  r();
+                }}
+              />
+              <span class="label-text">bits</span>
+            </span>
+
+            <span
+              class="delete-item prevent-select"
+              @mousedown=${(e) => {
+                STATE.frame = STATE.frame.filter(
+                  (x) => x.uuid !== frameItem.uuid
+                );
+                r();
+              }}
+            >
+              ×
+            </span>
+          </div>
+        `;
+      }
+
+      function rgba(r, g, b, a) {
+        r = r != undefined ? r : 255;
+        g = g != undefined ? g : r;
+        b = b != undefined ? b : g;
+        a = a != undefined ? a : 1.0;
+        return (
+          "rgba(" +
+          Math.floor(r) +
+          "," +
+          Math.floor(g) +
+          "," +
+          Math.floor(b) +
+          "," +
+          a.toFixed(3) +
+          ")"
+        );
+      }
+
+      function hsv(h, s, v, a) {
+        var c = v * s;
+        var x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+        var m = v - c;
+        var [rv, gv, bv] = [
+          [c, x, 0],
+          [x, c, 0],
+          [0, c, x],
+          [0, x, c],
+          [x, 0, c],
+          [c, 0, x],
+        ][Math.floor(h / 60)];
+        var [r, g, b] = [(rv + m) * 255, (gv + m) * 255, (bv + m) * 255];
+        return rgba(r, g, b, a);
+      }
+
+      function randomColor(frameItem) {
+        let { uuid } = frameItem;
+        let jsr = 0;
+        for (let i = 0; i < 4; i++) {
+          jsr = (jsr << 7) | uuid.charCodeAt(i);
+          rand();
+        }
+        console.log(jsr);
+        function rand() {
+          jsr ^= jsr << 17;
+          jsr ^= jsr >> 13;
+          jsr ^= jsr << 5;
+          return (jsr >>> 0) / 4294967295;
+        }
+        let h = rand();
+        return hsv(h * 180, 0.4, 0.9);
+      }
+
+      function thoughtfulColor(frameItem) {
+        let { uuid } = frameItem;
+        let jsr = 0;
+        for (let i = 0; i < 4; i++) {
+          jsr = (jsr << 7) | uuid.charCodeAt(i);
+          rand();
+        }
+        function rand() {
+          jsr ^= jsr << 17;
+          jsr ^= jsr >> 13;
+          jsr ^= jsr << 5;
+          return (jsr >>> 0) / 4294967295;
+        }
+
+        let d = rand();
+
+        let h, s, v;
+        s = 0.5;
+        v = 0.9;
+
+        if (frameItem.type == "ADDR") {
+          h = 10;
+        } else if (frameItem.type == "REGR") {
+          h = 260;
+          s = 0.4;
+        } else if (frameItem.type == "DATA") {
+          h = 40;
+          v = 0.9;
+        }
+
+        h += d * 20 - 10;
+        return hsv(h, s, v);
+      }
+
+      for (let i = 0; i < 100; i++) {
+        let c = randomColor({ uuid: makeid(10) });
+        console.log("%c TESTTEST" + c, "background:" + c);
+      }
+      function getFrameItemElt(frameItem) {
+        return document.getElementById("frameitem-" + frameItem.uuid);
+      }
+
+      window.dragFrameItemStart = function (e, uuid) {
+        document.querySelector("#framelist").focus();
+
+        let idx = 0;
+        for (let i = 0; i < STATE.frame.length; i++) {
+          if (STATE.frame[i].uuid == uuid) {
+            idx = i;
+            break;
+          }
+        }
+
+        let frameItem = STATE.frame[idx];
+        let elt = getFrameItemElt(frameItem);
+        elt.style.width = elt.getBoundingClientRect().width + "px";
+
+        elt.style.position = "absolute";
+        elt.style.zIndex = "100";
+        elt.style.left = e.clientX + "px";
+        elt.style.top = e.clientY + window.pageYOffset - 10 + "px";
+
+        STATE.flyingFrame.push(frameItem);
+        e.preventDefault();
+      };
+      function animate() {
+        requestAnimationFrame(animate);
+      }
+
+      function flyWhere(event) {
+        let x = event.clientX;
+        let y = event.clientY;
+        if (STATE.flyingFrame.length) {
+          let flyItem = STATE.flyingFrame[0];
+          let iid = -1;
+          for (let i = 0; i < STATE.frame.length; i++) {
+            if (STATE.frame[i].uuid == flyItem.uuid) {
+              // console.log("disaster prevented", i);
+              continue;
+            }
+            let elt = getFrameItemElt(STATE.frame[i]);
+            let r = elt.getBoundingClientRect();
+            // console.log(i,r.y-r.height/2,y,r.y+r.height/2)
+            if (y > r.y - r.height / 2 && y <= r.y + r.height / 2) {
+              iid = i;
+            } else if (i == 0 && y < r.y) {
+              iid = 0;
+            } else if (i == STATE.frame.length - 1 && y > r.y + r.height) {
+              iid = STATE.frame.length;
+            }
+          }
+          return iid;
+        }
+        return -1;
+      }
+
+      document.addEventListener("mousemove", function (event) {
+        let x = event.clientX;
+        let y = event.clientY + window.pageYOffset;
+        if (STATE.flyingFrame.length) {
+          let elt = getFrameItemElt(STATE.flyingFrame[0]);
+          elt.style.left = x + "px";
+          elt.style.top = y - 10 + "px";
+          let iid = flyWhere(event);
+          // console.log(iid);
+          console.log(iid, elt.parentElement.children);
+
+          if (iid == STATE.frame.length) {
+            STATE.colorTop = "!" + STATE.frame[STATE.frame.length - 1].uuid;
+          } else if (iid != -1) {
+            STATE.colorTop = STATE.frame[iid].uuid;
+          }
+          console.log(STATE.colorTop);
+
+          r();
+        }
+      });
+
+      document.addEventListener("mouseup", function (event) {
+        let x = event.clientX;
+        let y = event.clientY + window.pageYOffset;
+
+        if (STATE.flyingFrame.length) {
+          let flyItem = STATE.flyingFrame[0];
+          let iid = flyWhere(event);
+
+          let flyElt = getFrameItemElt(flyItem);
+          flyElt.style.position = "static";
+          STATE.flyingFrame.splice(0, Infinity);
+
+          let oid = STATE.frame.indexOf(flyItem);
+          STATE.frame.splice(oid, 1);
+          if (oid < iid) {
+            iid--;
+          }
+          STATE.frame.splice(iid, 0, flyItem);
+        }
+
+        STATE.colorTop = null;
+
+        r();
+      });
+
+      animate();
+
+      function init(state) {
+        console.log("loading");
+
+        render(view(state), document.body);
+
+        const listen = createListener(document.body);
+
+        // listen("click", "input", (e) => {});
+      }
+
+      init(STATE);
+
+      function createListener(target) {
+        const trigger = (e) => e.composedPath()[0];
+        const matchesTrigger = (e, selectorString) =>
+          trigger(e).matches(selectorString);
+
+        return (eventName, selectorString, event) => {
+          // focus doesn't work with this, focus doesn't bubble, need focusin
+          target.addEventListener(eventName, (e) => {
+            e.trigger = trigger(e); // Do I need this? e.target seems to work in many (all?) cases
+            if (selectorString === "" || matchesTrigger(e, selectorString))
+              event(e);
+          });
+        };
+      }
+
+      function sanitizeCVariableName(name) {
+        // First, remove invalid characters from the string
+        let sanitized = name.replaceAll(" ", "_").replace(/[^a-zA-Z0-9_]/g, "");
+
+        // Then, ensure the first character is a letter or underscore
+        while (
+          sanitized.length > 0 &&
+          !/^[a-zA-Z_]/.test(sanitized.charAt(0))
+        ) {
+          sanitized = sanitized.substring(1);
+        }
+
+        return sanitized;
+      }
+
+      function makeid(length) {
+        let result = "";
+        const characters =
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        const charactersLength = characters.length;
+        let counter = 0;
+        while (counter < length) {
+          result += characters.charAt(
+            Math.floor(Math.random() * charactersLength)
+          );
+          counter += 1;
+        }
+        return result;
+      }
+    </script>
+  </head>
+
+  <body></body>
+</html>
